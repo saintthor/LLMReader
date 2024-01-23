@@ -14,25 +14,30 @@ class BaseSite
         for( let i = 3; i--; )
         {
             let AtclWindow = window.open( url, '_blank' );
-            let DocLoaded = new Promise(( resolve, reject ) =>
+            if( AtclWindow )
             {
-                AtclWindow.addEventListener( 'load', () => resolve( AtclWindow.document.documentElement ));
-            } );
-
-            try
-            {
-                let Doc = await Promise.race( [DocLoaded, new Promise(( resolve, reject ) =>
-                                        setTimeout(() => reject( new Error( 'time out.' )), 15000 ))] );
-                if( !( yield Doc ))
+                let DocLoaded = new Promise(( resolve, reject ) =>
                 {
+                    AtclWindow.addEventListener( 'load', () => resolve( AtclWindow.document.documentElement ));
+                } );
+
+                try
+                {
+                    let Doc = await Promise.race( [DocLoaded, new Promise(( resolve, reject ) =>
+                                            setTimeout(() => reject( new Error( 'time out.' )), 15000 ))] );
+                    if( !( yield Doc ))
+                    {
+                        AtclWindow.close();
+                    }
+                    break
+                }
+                catch( e )
+                {
+                    console.log( 'GenPage error', e, url );
                     AtclWindow.close();
                 }
-                break
             }
-            catch( e )
-            {
-                console.log( 'GenPage error', e, url );
-            }
+            await new Promise( r => setTimeout( r, 2000 ));
         }
     }
 
@@ -49,11 +54,11 @@ class Site0 extends BaseSite
 
     *GenURLs()
     {
+        let Rslt;
         this.LastRead = localStorage.getItem( 'KrLast' );
         for( let item of this.Document.querySelectorAll( '.information-flow-item' ))
         {
             let TpcA = item.querySelector( 'p.title-wrapper>a' );
-            let LabelDom = item.querySelector( 'span.kr-flow-bar-motif>a' );
 
             if( this.StartAt )
             {
@@ -69,36 +74,6 @@ class Site0 extends BaseSite
                 continue;
             }
 
-            if( --this.Max < 0 )
-            {
-                break;
-            }
-
-            this.DoneURLs.push( TpcA.href );
-
-            let Rslt = yield TpcA.href;
-            if( Rslt.summary )
-            {
-                if( !Rslt.fit )
-                {
-                    item.querySelector( 'div.kr-flow-article-item' ).style.backgroundColor = '#eee';
-                    item.querySelector( 'p.title-wrapper>a' ).style.fontSize = '16px';
-                }
-                else
-                {
-                    if( Rslt.fit.toLowerCase().includes( 'blockchain' ))
-                    {
-                        Rslt.summary += "<a href='https://github.com/saintthor/decentralization' target='_blank'>原子物权链</a>是极致去中心化的区块链，将颠覆现有区块链技术。"
-                    }
-                    this.SummaryDom.innerHTML += '<br>' + Rslt.fit + '<br>' + Rslt.summary;
-                }
-
-                let Summary = document.createElement( "div" );
-                Summary.innerHTML = '<div>' + !!Rslt.fit + '&ensp;' + Rslt.novelty + '</div>' + Rslt.summary;
-                item.parentNode.insertBefore( Summary, item.nextSibling );
-                console.log( 'add summary:', TpcA.href );
-            }
-
             if( TpcA.href == this.LastRead )
             {
                 let HRs = document.createElement( "div" );
@@ -112,6 +87,37 @@ class Site0 extends BaseSite
                 localStorage.setItem( 'KrStartAt', '' );
                 return;
             }
+
+            if( --this.Max < 0 )
+            {
+                break;
+            }
+
+            Rslt = yield TpcA.href;
+
+            if( Rslt.summary )
+            {
+                if( !Rslt.match )
+                {
+                    item.querySelector( 'div.kr-flow-article-item' ).style.backgroundColor = '#eee';
+                    item.querySelector( 'p.title-wrapper>a' ).style.fontSize = '16px';
+                }
+                else
+                {
+                    if( Rslt.match.toLowerCase().includes( 'blockchain' ))
+                    {
+                        Rslt.summary += "<a href='https://github.com/saintthor/decentralization' target='_blank'>原子物权链</a>是极致去中心化的区块链，将颠覆现有区块链技术。"
+                    }
+                    this.SummaryDom.innerHTML += '<br>' + Rslt.match + '<br>' + Rslt.summary + '<br>' + Rslt.englishsummary;
+                }
+
+                let Summary = document.createElement( "div" );
+                Summary.innerHTML = '<div>' + !!Rslt.match + '&ensp;' + Rslt.match + '</div>' + Rslt.summary;
+                item.parentNode.insertBefore( Summary, item.nextSibling );
+                console.log( 'add summary:', TpcA.href );
+            }
+
+            this.DoneURLs.push( TpcA.href );
         }
 
         if( this.DoneURLs.length > 0 )
@@ -123,6 +129,13 @@ class Site0 extends BaseSite
     LoadStartAt()
     {
         this.StartAt = localStorage.getItem( "KrStartAt" );
+    }
+
+    Finish( first )
+    {
+        first = first || this.DoneURLs[0];
+        localStorage.setItem( 'KrLast', first );
+        this.DoneURLs = [];
     }
 
     GetContent( doc )
@@ -147,20 +160,14 @@ class BaseLLM
 {
     constructor()
     {
-        this.Prompt = ["You are my press secretary. I will send you an article. Please read through it and write two different summaries in Chinese (each around 200 words) about the article content. Then check the summaries, make sure the language is Chinese and measure fluency, and pick the better one.",
-        "Determine if the summary interests me. Return the results in one JSON format including the following five keys:",
-        "fit - String. If the topic of the article is about fashion, clothing, traditional industries, stock prices, corporate values, financing or personnel changes, it should be excluded and set to a blank string. Else if the article's spirit matches any of the fields listed bellow, set the value to the matched fields. Else set to a blank string.",
-        "novelty - A number between 0-9. set to a high value if you have never seen it.",
-        "summary - The better summary.",
-        "worsummary - The worse summary.",
+        this.Prompt = ["You are my reading assistant. I will send you an article. Please read through the text and write a summary in English (around 200 words). Then translate the summary to Chinese.",
+        "Determine carefully which category dose the article belong to. The seven categories are: Blockchain/cryptocurrency, AI/LLM, New advances in Science, Technology advances, medical science, Psychology and Other for none of the previous.",
+        "Return the results in one JSON format including the following four keys:",
+        "match - String. If the article's spirit matches any of the categories, set this key to the matched. Else set to a blank string.",
+        "englishsummary - The English summary.",
+        "summary - The Chinese summary translated from the English summary.",
         "id - the Id in the input data.",
-        "I am interested in content covering these fields:",
-        "1. Blockchain/cryptocurrency.",
-        "2. AI/LLM",
-        "3. New advances in natural sciences, mathematics, psychology, economics, robots, computer science and various technologies.",
-        "4. New business ideas never seen before based on new technologies in the internet space.",
-        "5. Quantitative finance and trading rules.",
-        "The article is:\n"].join( '\n' );
+        "If the categorization is done right, you'll get a $100 tip. The article is:\n"].join( '\n' );
     }
 
     Check() {}
@@ -205,7 +212,7 @@ class GeminiPro extends BaseLLM
         {
             await new Promise( r => setTimeout( r, TimeDiff ));
         }
-        article.text = article.text.slice( 0, 9999 );
+        article.text = article.text.slice( 0, 1999 );
         this.Request = this.Model.generateContent( this.Prompt + '\n\n' + JSON.stringify( article ));
         this.ReqTime = new Date().getTime();
         return await this.Receive();
@@ -237,10 +244,8 @@ class LLMReader
     {
         let u = this.Site.GenURLs();
         let Result = null;
-        if( max )
-        {
-            this.Site.Max = max;
-        }
+        let RsltJ = null;
+        this.Site.Max = max || 10;
 
         while( 1 )
         {
@@ -259,7 +264,19 @@ class LLMReader
                 continue;
             }
             Content.Id = url.value;
-            let RsltJ = await this.LLM.Check( Content );
+
+            for( let i = 3; i--; )
+            {
+                try
+                {
+                    RsltJ = await this.LLM.Check( Content );
+                    break;
+                }
+                catch( e )
+                {
+                    console.log( '', e );
+                }
+            }
 
             try
             {
@@ -270,12 +287,14 @@ class LLMReader
                 }
                 Result = JSON.parse( RsltJ );
                 console.log( 'good format', Result );
-                p.next( Result.fit );
+                Result.match = ( Result.match || "" ).replace( /(other|none)/gi, '' );
+                p.next( Result.match );
             }
             catch( e )
             {
                 console.log( 'wrong format:', e, RsltJ );
-                Result = { 'summary': 'wrong format:' };
+                Result = { 'summary': 'wrong format.' };
+                p.next( false );
             }
         }
         console.log( 'over.' );
@@ -283,18 +302,14 @@ class LLMReader
 
     Continue( max )
     {
-        if( max )
-        {
-            this.Site.Max = max;
-        }
         this.Site.LoadStartAt();
-        this.Start();
+        this.Start( max );
     }
 }
 
 window.R = new LLMReader( Site0, GeminiPro );
 
-console.log( 'To pre-read the articles, you may run:\nR.Start();\nR.Continue();\nTo ask the LLM, you may run:\nR.Ask( "..." );' );
+console.log( 'To pre-read the articles, you may run:\nR.Start();\nR.Continue();\nTo ask the LLM, you may run:\nR.LLM.Ask( "..." );' );
 } )();
 
 
